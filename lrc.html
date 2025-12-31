@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<!-- 使用AI生成，上一句 和 上上句 都是重新标记最近一个标记，只不过他们的重新播放位置不同，如果是打时间戳打晚了，那就只能点上上句。分享出来的目的主要是为了节省大家时间（我试着找过网上的在线编辑，不知道是不是土豆服务器的原因，音频文件上传不了）。唯一的遗憾是UI还是没设计好，标记歌词的时候不能看波形图（注意：点 上一句 之后会暂停播放，而 上上句 不会） -->
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LRC歌词制作工具 (智能重新标记版)</title>
+    <script src="https://unpkg.com/wavesurfer.js@7"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: sans-serif; padding: 15px; background: #f5f5f5; color: #333; line-height: 1.6; }
+        .container { max-width: 100%; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 15px; color: #2c3e50; font-size: 1.5rem; }
+        .control-panel { background: white; padding: 12px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 12px; }
+        
+        /* 按钮样式 */
+        .btn { 
+            display: inline-block; 
+            padding: 8px 10px; 
+            margin: 3px; 
+            background: #3498db; 
+            color: white; 
+            border: none; 
+            border-radius: 6px; 
+            font-size: 13px; 
+            cursor: pointer; 
+            text-align: center; 
+        }
+        .btn:hover { background: #2980b9; }
+        .btn-success { background: #2ecc71; }
+        .btn-warning { background: #f39c12; }
+        .btn-danger { background: #e74c3c; }
+        .btn-info { background: #17a2b8; }
+        .btn-secondary { background: #95a5a6; }
+        .btn-active { background: #9b59b6; box-shadow: inset 0 0 5px rgba(0,0,0,0.2); }
+        .btn-row { display: flex; flex-wrap: wrap; justify-content: center; margin: 8px 0; }
+        
+        /* 波形图高度 */
+        #waveform { 
+            width: 100%; 
+            height: 80px; 
+            background: #ecf0f1; 
+            border-radius: 5px; 
+            margin: 8px 0; 
+            cursor: pointer; 
+        }
+        
+        .time-display { 
+            text-align: center; 
+            font-size: 1rem; 
+            margin: 8px 0; 
+            padding: 6px; 
+            background: #2c3e50; 
+            color: white; 
+            border-radius: 5px; 
+        }
+        
+        /* 速度控制 */
+        .speed-control { 
+            text-align: center; 
+            margin: 6px 0; 
+            font-size: 0.9rem;
+        }
+        .speed-btn { 
+            margin: 0 2px; 
+            padding: 5px 8px; 
+            font-size: 12px;
+        }
+        
+        /* 整合的歌词编辑区 */
+        .lyrics-editor { 
+            background: white; 
+            padding: 12px; 
+            border-radius: 10px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+            margin: 12px 0;
+        }
+        .lyrics-editor h3 { 
+            margin-bottom: 10px; 
+            color: #34495e; 
+            border-bottom: 2px solid #3498db; 
+            padding-bottom: 5px; 
+            font-size: 1.1rem; 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        /* 当前行提示 */
+        .current-line-info {
+            padding: 8px;
+            background: #e1f5e9;
+            border-radius: 6px;
+            border-left: 4px solid #2ecc71;
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+        }
+        
+        /* 歌词和时间轴整合显示 */
+        .lyrics-container {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #fafafa;
+        }
+        .lyric-line {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: flex-start;
+            cursor: pointer;
+        }
+        .lyric-line.current {
+            background: #fff9e6;
+            border-left: 4px solid #f39c12;
+        }
+        .lyric-line.marked {
+            background: #e8f4fc;
+            border-left: 4px solid #3498db;
+        }
+        .time-tag {
+            color: #e74c3c;
+            font-weight: bold;
+            min-width: 70px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        .lyric-text {
+            flex-grow: 1;
+            padding-top: 2px;
+        }
+        .lyric-line.current .lyric-text {
+            color: #e67e22;
+            font-weight: bold;
+        }
+        .lyric-line.marked .lyric-text {
+            color: #2c3e50;
+        }
+        .lyric-line:hover {
+            background: #f5f5f5;
+        }
+        
+        /* 状态提示 */
+        .status-bar { 
+            margin-top: 10px; 
+            padding: 8px; 
+            background: #fff3cd; 
+            border: 1px solid #ffeaa7; 
+            border-radius: 5px; 
+            color: #856404; 
+            text-align: center; 
+            font-size: 13px; 
+        }
+        .key-hint { 
+            text-align: center; 
+            margin-top: 8px; 
+            font-size: 0.8rem; 
+            color: #7f8c8d; 
+        }
+        
+        /* 标记操作区 */
+        .marking-section {
+            background: white;
+            padding: 12px;
+            border-radius: 10px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            margin-top: 10px;
+            position: sticky;
+            bottom: 0;
+            z-index: 10;
+        }
+        
+        /* 手动下载区域 */
+        .manual-download-area { 
+            margin: 12px auto; 
+            padding: 12px; 
+            background: #e8f4fc; 
+            border: 2px dashed #3498db; 
+            border-radius: 10px; 
+            text-align: center; 
+            max-width: 90%; 
+            display: none; 
+        }
+        .copy-area { 
+            margin: 8px 0; 
+            padding: 8px; 
+            background: #fff3cd; 
+            border-radius: 5px; 
+            text-align: center; 
+        }
+        
+        /* 移动端优化 */
+        @media (max-width: 767px) {
+            .btn { 
+                flex: 1; 
+                min-width: 45%; 
+                margin: 2px; 
+                padding: 7px 8px;
+                font-size: 12px;
+            }
+            .btn-row { 
+                justify-content: space-between; 
+            }
+            h1 { font-size: 1.3rem; }
+            .control-panel { padding: 10px; }
+            .lyrics-editor { padding: 10px; }
+            .lyrics-container { max-height: 250px; }
+        }
+        
+        @media (min-width: 768px) {
+            .lyrics-container { max-height: 350px; }
+        }
+        
+        /* 文件上传样式 */
+        #audioFile {
+            display: block;
+            margin: 8px auto;
+            padding: 8px;
+            width: 100%;
+            max-width: 400px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>LRC歌词制作工具 (智能重新标记版)</h1>
+        
+        <div class="control-panel">
+            <input type="file" id="audioFile" accept="audio/*">
+            
+            <div class="time-display">
+                当前时间: <span id="currentTime">0.00</span> 秒 / 总时长: <span id="totalTime">0.00</span> 秒
+            </div>
+            
+            <div id="waveform"></div>
+            
+            <div class="speed-control">
+                <strong>播放速度:</strong>
+                <button class="btn speed-btn" id="speed05" data-speed="0.5">0.5x</button>
+                <button class="btn speed-btn" id="speed075" data-speed="0.75">0.75x</button>
+                <button class="btn speed-btn btn-active" id="speed10" data-speed="1.0">1.0x</button>
+            </div>
+            
+            <div class="btn-row">
+                <button class="btn" id="playPauseBtn">播放/暂停</button>
+                <button class="btn btn-warning" id="prevBtn">上一句</button>
+                <button class="btn btn-success" id="markTimeBtn">标记本句</button>
+                <button class="btn btn-secondary" id="jumpToPrevPrevBtn">上上句</button>
+                <button class="btn btn-danger" id="resetBtn">重置</button>
+                <button class="btn" id="exportBtn">导出LRC</button>
+            </div>
+        </div>
+        
+        <!-- 整合的歌词编辑区 -->
+        <div class="lyrics-editor">
+            <h3>
+                <span>歌词编辑与标记</span>
+                <span style="font-size: 0.9rem; color: #666;">
+                    进度: <span id="currentLineIndex">0</span>/<span id="totalLines">0</span>
+                </span>
+            </h3>
+            
+            <!-- 当前行提示 -->
+            <div class="current-line-info">
+                <strong>当前标记行 (<span id="currentLineNumber">0</span>):</strong>
+                <span id="currentLineText" style="color: #2ecc71; font-weight: bold; margin-left: 5px;">等待输入歌词...</span>
+            </div>
+            
+            <div class="lyrics-container" id="lyricsContainer">
+                <div style="padding: 20px; text-align: center; color: #999;">
+                    请在下方输入歌词，每行一句
+                </div>
+            </div>
+            
+            <textarea id="lyricsInput" 
+                      placeholder="请输入歌词，每行一句。输入后按「更新歌词」按钮。
+例如：
+第一句歌词
+第二句歌词
+第三句歌词
+..." 
+                      style="width: 100%; height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; resize: vertical; margin-top: 10px;"></textarea>
+            
+            <div class="btn-row" style="margin-top: 10px;">
+                <button class="btn" id="updateLyricsBtn">更新歌词</button>
+                <button class="btn" id="clearLyricsBtn">清空歌词</button>
+            </div>
+        </div>
+        
+        <!-- 标记操作区 -->
+        <div class="marking-section">
+            <div class="btn-row">
+                <button class="btn btn-success" id="markTimeBtn2" style="flex: 2;">✔ 标记本句 (M键)</button>
+                <button class="btn btn-warning" id="prevBtn2">← 上一句 (P键)</button>
+                <button class="btn btn-secondary" id="jumpToPrevPrevBtn2">↶ 上上句 (J键)</button>
+            </div>
+            <div class="key-hint">
+                <strong>提示:</strong> 空格键播放/暂停 | M键标记 | P键上一句 | J键上上句 | 可拖动波形图定位
+            </div>
+        </div>
+        
+        <div class="manual-download-area" id="manualDownloadArea">
+            <h3>📥 手动下载链接</h3>
+            <a id="manualDownloadLink" href="#" download="歌词.lrc" style="display: inline-block; padding: 10px 15px; background: #2ecc71; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; margin: 8px 0;">
+                点此下载 LRC 文件
+            </a>
+            <p style="font-size: 13px; color: #666; margin-top: 8px;">
+                <strong>手机操作提示:</strong> 长按上方绿色按钮，选择"下载链接文件"或"保存链接"。
+            </p>
+        </div>
+        
+        <div class="copy-area" id="copyArea" style="display: none;">
+            <button class="btn" id="copyBtn" style="background: #9b59b6;">📋 复制LRC内容到剪贴板</button>
+            <p style="font-size: 12px; color: #666; margin-top: 5px;">复制后，可粘贴到备忘录中保存为.lrc文件</p>
+        </div>
+        
+        <div class="status-bar" id="status">
+            请上传音频文件，然后输入歌词。
+        </div>
+    </div>
+
+    <script>
+        // 初始化 Wavesurfer
+        let wavesurfer = WaveSurfer.create({
+            container: '#waveform',
+            waveColor: '#3498db',
+            progressColor: '#2ecc71',
+            cursorColor: '#e74c3c',
+            height: 'auto',
+            responsive: true,
+            barWidth: 2,
+            cursorWidth: 1,
+            dragToSeek: true,
+        });
+
+        // 状态变量
+        let lyricsData = []; // 存储歌词数据 {text: "", time: null, formatted: ""}
+        let currentLineIndex = 0;
+        let updateTimeInterval;
+        let currentPlaybackRate = 1.0;
+
+        // 1. 加载音频文件
+        document.getElementById('audioFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const url = URL.createObjectURL(file);
+            wavesurfer.load(url);
+            document.getElementById('status').textContent = `加载中: ${file.name}...`;
+            document.getElementById('currentTime').textContent = '0.00';
+            document.getElementById('totalTime').textContent = '0.00';
+
+            // 隐藏之前的下载区域
+            document.getElementById('manualDownloadArea').style.display = 'none';
+            document.getElementById('copyArea').style.display = 'none';
+
+            if (updateTimeInterval) {
+                clearInterval(updateTimeInterval);
+            }
+        });
+
+        // 2. 音频加载完毕
+        wavesurfer.on('ready', () => {
+            const duration = wavesurfer.getDuration();
+            document.getElementById('totalTime').textContent = duration.toFixed(2);
+            document.getElementById('status').textContent = '音频已就绪！可以播放并开始标记。';
+            
+            // 开始更新当前时间显示
+            updateTimeInterval = setInterval(updateCurrentTimeDisplay, 100);
+            
+            // 设置初始播放速度
+            wavesurfer.setPlaybackRate(currentPlaybackRate);
+        });
+
+        // 3. 更新当前时间显示
+        function updateCurrentTimeDisplay() {
+            if (wavesurfer.getDuration() > 0) {
+                const current = wavesurfer.getCurrentTime();
+                document.getElementById('currentTime').textContent = current.toFixed(2);
+            }
+        }
+
+        // 4. 更新歌词显示
+        function updateLyricsDisplay() {
+            const container = document.getElementById('lyricsContainer');
+            container.innerHTML = '';
+            
+            if (lyricsData.length === 0) {
+                container.innerHTML = '<div style="padding: 20px; text-align: center; color: #999;">请在下方输入歌词，每行一句</div>';
+                return;
+            }
+            
+            lyricsData.forEach((line, index) => {
+                const lineDiv = document.createElement('div');
+                lineDiv.className = 'lyric-line';
+                
+                if (index === currentLineIndex) {
+                    lineDiv.classList.add('current');
+                } else if (line.time !== null) {
+                    lineDiv.classList.add('marked');
+                }
+                
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'time-tag';
+                timeSpan.textContent = line.formatted || '[未标记]';
+                
+                const textSpan = document.createElement('span');
+                textSpan.className = 'lyric-text';
+                textSpan.textContent = line.text;
+                
+                lineDiv.appendChild(timeSpan);
+                lineDiv.appendChild(textSpan);
+                container.appendChild(lineDiv);
+                
+                // 添加点击事件，点击某行可以将其设为当前行
+                lineDiv.addEventListener('click', () => {
+                    currentLineIndex = index;
+                    updateLyricsDisplay();
+                    updateCurrentLineDisplay();
+                    
+                    // 如果该行已标记，跳转到该时间点
+                    if (line.time !== null) {
+                        wavesurfer.seekTo(line.time / wavesurfer.getDuration());
+                        wavesurfer.pause();
+                    }
+                });
+            });
+            
+            // 滚动到当前行
+            const currentElement = container.querySelector('.lyric-line.current');
+            if (currentElement) {
+                currentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        // 5. 更新当前行显示
+        function updateCurrentLineDisplay() {
+            document.getElementById('totalLines').textContent = lyricsData.length;
+            document.getElementById('currentLineIndex').textContent = Math.min(currentLineIndex + 1, lyricsData.length);
+            document.getElementById('currentLineNumber').textContent = Math.min(currentLineIndex + 1, lyricsData.length);
+            
+            const currentElem = document.getElementById('currentLineText');
+            
+            if (currentLineIndex < lyricsData.length) {
+                currentElem.textContent = lyricsData[currentLineIndex].text;
+                currentElem.style.color = '#2ecc71';
+            } else {
+                currentElem.textContent = '所有歌词行已完成标记！';
+                currentElem.style.color = '#e74c3c';
+            }
+        }
+
+        // 6. 格式化时间为 LRC 格式 [mm:ss.xx]
+        function formatTime(seconds) {
+            const min = Math.floor(seconds / 60);
+            const sec = (seconds % 60).toFixed(2);
+            return `[${min.toString().padStart(2, '0')}:${sec.padStart(5, '0')}]`;
+        }
+
+        // 7. 标记当前时间点 - 标记后不暂停！
+        function markCurrentTime() {
+            if (wavesurfer.getDuration() <= 0) {
+                alert('请先加载音频文件。');
+                return;
+            }
+            if (lyricsData.length === 0) {
+                alert('请先输入歌词。');
+                return;
+            }
+            if (currentLineIndex >= lyricsData.length) {
+                alert('所有歌词行都已标记完毕。');
+                return;
+            }
+
+            const currentTime = wavesurfer.getCurrentTime();
+            const timeStr = formatTime(currentTime);
+            
+            // 更新当前歌词行的时间
+            lyricsData[currentLineIndex].time = currentTime;
+            lyricsData[currentLineIndex].formatted = timeStr;
+            
+            document.getElementById('status').textContent = `已标记第 ${currentLineIndex + 1} 行: ${timeStr}`;
+            
+            // 标记后自动前进到下一句，但不要暂停！
+            currentLineIndex++;
+            
+            // 更新显示
+            updateLyricsDisplay();
+            updateCurrentLineDisplay();
+            
+            // 如果所有歌词都已标记，自动暂停
+            if (currentLineIndex >= lyricsData.length) {
+                wavesurfer.pause();
+                document.getElementById('status').textContent = '所有歌词行都已标记完毕！';
+            }
+        }
+
+        // 8. 智能回退到上上句（关键新功能）
+        function jumpToPreviousPreviousLine() {
+            if (currentLineIndex < 2) {
+                alert('需要至少标记了三句才能使用此功能。');
+                return;
+            }
+            
+            // 目标：回到上上句（当前句的往前两句）
+            // 但当前标记行设置为上一句（这样用户可以从上上句开始听，然后标记上一句的正确开始时间）
+            const targetJumpLine = currentLineIndex - 2; // 上上句
+            const targetMarkLine = currentLineIndex - 1; // 上一句（我们要重新标记的这一句）
+            
+            // 检查上上句是否有标记时间
+            let jumpTime = 0;
+            if (lyricsData[targetJumpLine] && lyricsData[targetJumpLine].time !== null) {
+                jumpTime = lyricsData[targetJumpLine].time;
+            } else {
+                // 如果上上句没有标记，找更早的标记或使用回退时间
+                for (let i = targetJumpLine - 1; i >= 0; i--) {
+                    if (lyricsData[i].time !== null) {
+                        jumpTime = lyricsData[i].time;
+                        break;
+                    }
+                }
+                // 如果前面都没有标记，回退一个估计的时间（例如每句假设2秒）
+                jumpTime = Math.max(0, wavesurfer.getCurrentTime() - (targetJumpLine + 1) * 2);
+            }
+            
+            // 设置当前行为上一句（即我们要重新标记的句子）
+            currentLineIndex = targetMarkLine;
+            
+            // 跳转到上上句的开始时间
+            wavesurfer.seekTo(jumpTime / wavesurfer.getDuration());
+            wavesurfer.play();
+            
+            // 更新显示
+            updateLyricsDisplay();
+            updateCurrentLineDisplay();
+            
+            document.getElementById('status').textContent = 
+                `已跳转到第 ${targetJumpLine + 1} 句开始播放，准备重新标记第 ${targetMarkLine + 1} 句。`;
+        }
+
+        // 9. 智能重新标记当前句（清除当前句标记并回退）
+        function reMarkCurrentLine() {
+            if (currentLineIndex === 0) {
+                alert('第一句无法重新标记，请使用"上一句"功能。');
+                return;
+            }
+            
+            // 找到要重新标记的句子（当前句或上一句）
+            let targetIndex = -1;
+            
+            // 先检查当前句是否已标记
+            if (currentLineIndex < lyricsData.length && lyricsData[currentLineIndex].time !== null) {
+                targetIndex = currentLineIndex;
+            }
+            // 检查上一句是否已标记
+            else if (currentLineIndex > 0 && lyricsData[currentLineIndex - 1].time !== null) {
+                targetIndex = currentLineIndex - 1;
+            }
+            
+            if (targetIndex === -1) {
+                alert('没有找到已标记的句子可以重新标记。');
+                return;
+            }
+            
+            // 清除标记
+            lyricsData[targetIndex].time = null;
+            lyricsData[targetIndex].formatted = '';
+            
+            // 设置当前行为要重新标记的行
+            currentLineIndex = targetIndex;
+            
+            // 寻找前一句的标记时间，用于跳转
+            let jumpTime = 0;
+            if (targetIndex > 0 && lyricsData[targetIndex - 1].time !== null) {
+                jumpTime = lyricsData[targetIndex - 1].time;
+            } else {
+                // 回退一个估计时间
+                jumpTime = Math.max(0, wavesurfer.getCurrentTime() - 3);
+            }
+            
+            // 跳转并播放
+            wavesurfer.seekTo(jumpTime / wavesurfer.getDuration());
+            wavesurfer.play();
+            
+            // 更新显示
+            updateLyricsDisplay();
+            updateCurrentLineDisplay();
+            document.getElementById('status').textContent = 
+                `已清除第 ${targetIndex + 1} 句标记，从第 ${targetIndex} 句开始重新播放。`;
+        }
+
+        // 10. 智能上一句功能
+        function smartGoBack() {
+            if (currentLineIndex === 0) {
+                alert('已经是第一句了，无法回退。');
+                return;
+            }
+            
+            const currentTime = wavesurfer.getCurrentTime();
+            const prevIndex = currentLineIndex - 1;
+            
+            // 如果上一句已标记，且当前时间距离上一句标记时间很近（说明标记晚了）
+            if (prevIndex >= 0 && lyricsData[prevIndex].time !== null) {
+                const prevMarkTime = lyricsData[prevIndex].time;
+                const timeDiff = currentTime - prevMarkTime;
+                
+                // 如果距离上一句标记时间小于2秒，认为是标记晚了，询问是否重新标记
+                if (timeDiff < 2 && timeDiff > 0) {
+                    if (confirm(`您似乎标记晚了（距离上一句标记只有${timeDiff.toFixed(1)}秒）。要重新标记上一句吗？`)) {
+                        // 清除上一句标记
+                        lyricsData[prevIndex].time = null;
+                        lyricsData[prevIndex].formatted = '';
+                        
+                        // 回退到上一句
+                        currentLineIndex = prevIndex;
+                        
+                        // 回退播放时间到比原标记时间早一点的位置
+                        const rewindTo = Math.max(0, prevMarkTime - 1);
+                        wavesurfer.seekTo(rewindTo / wavesurfer.getDuration());
+                        wavesurfer.pause();
+                        
+                        updateLyricsDisplay();
+                        updateCurrentLineDisplay();
+                        document.getElementById('status').textContent = `已清除第 ${prevIndex + 1} 句标记，请重新标记。`;
+                        return;
+                    }
+                }
+            }
+            
+            // 否则执行普通的上一句功能
+            goToPreviousLine();
+        }
+
+        // 11. 普通的上一句功能
+        function goToPreviousLine() {
+            if (currentLineIndex === 0) {
+                alert('已经是第一句了，无法回退。');
+                return;
+            }
+            
+            // 回退索引
+            currentLineIndex = Math.max(0, currentLineIndex - 1);
+            
+            // 如果上一句已标记，跳转到标记时间
+            if (lyricsData[currentLineIndex].time !== null) {
+                const prevTime = lyricsData[currentLineIndex].time;
+                wavesurfer.seekTo(prevTime / wavesurfer.getDuration());
+            }
+            
+            updateLyricsDisplay();
+            updateCurrentLineDisplay();
+            wavesurfer.pause();
+            document.getElementById('status').textContent = `已回退到第 ${currentLineIndex + 1} 句，可以重新标记。`;
+        }
+
+        // 12. 倍速播放控制
+        function setPlaybackRate(rate) {
+            currentPlaybackRate = rate;
+            wavesurfer.setPlaybackRate(rate);
+            
+            // 更新按钮状态
+            document.querySelectorAll('.speed-btn').forEach(btn => {
+                if (parseFloat(btn.getAttribute('data-speed')) === rate) {
+                    btn.classList.add('btn-active');
+                } else {
+                    btn.classList.remove('btn-active');
+                }
+            });
+            
+            document.getElementById('status').textContent = `播放速度已设置为 ${rate}x`;
+        }
+
+        // 13. 更新歌词按钮事件
+        document.getElementById('updateLyricsBtn').addEventListener('click', function() {
+            const text = document.getElementById('lyricsInput').value;
+            const lines = text.split('\n').filter(line => line.trim() !== '');
+            
+            // 转换现有数据，保留已标记的时间
+            const newLyricsData = lines.map((line, index) => {
+                // 如果已有数据且索引相同，保留时间信息
+                if (index < lyricsData.length && lyricsData[index].text === line) {
+                    return lyricsData[index];
+                }
+                // 否则创建新的数据项
+                return { text: line, time: null, formatted: '' };
+            });
+            
+            lyricsData = newLyricsData;
+            currentLineIndex = 0;
+            
+            updateLyricsDisplay();
+            updateCurrentLineDisplay();
+            document.getElementById('status').textContent = `已更新歌词，共 ${lyricsData.length} 句。`;
+        });
+
+        // 14. 清空歌词按钮事件
+        document.getElementById('clearLyricsBtn').addEventListener('click', function() {
+            if (confirm('确定要清空所有歌词吗？已标记的时间点也将被清除。')) {
+                lyricsData = [];
+                currentLineIndex = 0;
+                document.getElementById('lyricsInput').value = '';
+                
+                updateLyricsDisplay();
+                updateCurrentLineDisplay();
+                document.getElementById('status').textContent = '歌词已清空。';
+            }
+        });
+
+        // 15. 绑定按钮事件
+        document.getElementById('playPauseBtn').addEventListener('click', () => {
+            wavesurfer.playPause();
+        });
+
+        document.getElementById('markTimeBtn').addEventListener('click', markCurrentTime);
+        document.getElementById('markTimeBtn2').addEventListener('click', markCurrentTime);
+
+        document.getElementById('prevBtn').addEventListener('click', smartGoBack);
+        document.getElementById('prevBtn2').addEventListener('click', smartGoBack);
+
+        document.getElementById('jumpToPrevPrevBtn').addEventListener('click', jumpToPreviousPreviousLine);
+        document.getElementById('jumpToPrevPrevBtn2').addEventListener('click', jumpToPreviousPreviousLine);
+
+        // 16. 倍速按钮事件
+        document.getElementById('speed05').addEventListener('click', () => setPlaybackRate(0.5));
+        document.getElementById('speed075').addEventListener('click', () => setPlaybackRate(0.75));
+        document.getElementById('speed10').addEventListener('click', () => setPlaybackRate(1.0));
+
+        // 17. 重置按钮
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            if (confirm('确定要重置所有已标记的时间点吗？歌词文本将保留。')) {
+                lyricsData.forEach(line => {
+                    line.time = null;
+                    line.formatted = '';
+                });
+                currentLineIndex = 0;
+                
+                updateLyricsDisplay();
+                updateCurrentLineDisplay();
+                document.getElementById('manualDownloadArea').style.display = 'none';
+                document.getElementById('copyArea').style.display = 'none';
+                document.getElementById('status').textContent = '时间轴已重置。';
+            }
+        });
+
+        // 18. 导出 LRC 文件
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            if (lyricsData.length === 0) {
+                alert('请先输入歌词。');
+                return;
+            }
+
+            const hasMarked = lyricsData.some(line => line.time !== null);
+            if (!hasMarked) {
+                alert('请至少标记一个时间点。');
+                return;
+            }
+
+            let lrcContent = '[ti:歌曲名]\n[ar:歌手]\n[al:专辑]\n[by:本工具生成]\n\n';
+            
+            // 添加所有歌词行
+            lyricsData.forEach(line => {
+                if (line.time !== null) {
+                    lrcContent += `${line.formatted}${line.text}\n`;
+                } else {
+                    lrcContent += `[未标记]${line.text}\n`;
+                }
+            });
+
+            // 方法1: 尝试自动下载
+            let autoDownloadSuccess = false;
+            try {
+                const blob = new Blob([lrcContent], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '歌词.lrc';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                // 延迟释放URL
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                }, 10000);
+                
+                autoDownloadSuccess = true;
+                document.getElementById('status').innerHTML = '✅ 已尝试自动下载！<br>如果没弹出下载，请使用下方手动下载链接。';
+            } catch (error) {
+                document.getElementById('status').innerHTML = '⚠️ 自动下载失败，请使用下方手动下载链接。';
+            }
+            
+            // 方法2: 显示手动下载区域
+            const manualDownloadArea = document.getElementById('manualDownloadArea');
+            const manualDownloadLink = document.getElementById('manualDownloadLink');
+            const copyArea = document.getElementById('copyArea');
+            
+            // 创建新的Blob用于手动下载
+            const blob = new Blob([lrcContent], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            manualDownloadLink.href = url;
+            manualDownloadLink.download = '歌词.lrc';
+            
+            // 显示手动下载区域
+            manualDownloadArea.style.display = 'block';
+            copyArea.style.display = 'block';
+            
+            // 保存LRC内容到全局变量供复制使用
+            window.lrcContentForCopy = lrcContent;
+            
+            // 滚动到下载区域
+            setTimeout(() => {
+                manualDownloadArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 300);
+            
+            // 如果自动下载失败，给出更明确的提示
+            if (!autoDownloadSuccess) {
+                document.getElementById('status').innerHTML = '📱 请使用下方绿色按钮手动下载。<br><small>长按按钮 → 选择"下载链接文件"</small>';
+            }
+        });
+
+        // 19. 复制到剪贴板功能
+        document.getElementById('copyBtn').addEventListener('click', function() {
+            if (!window.lrcContentForCopy) {
+                alert('请先导出LRC文件');
+                return;
+            }
+            
+            navigator.clipboard.writeText(window.lrcContentForCopy)
+                .then(() => {
+                    const originalText = this.textContent;
+                    this.textContent = '✅ 已复制到剪贴板！';
+                    this.style.background = '#2ecc71';
+                    
+                    setTimeout(() => {
+                        this.textContent = originalText;
+                        this.style.background = '#9b59b6';
+                    }, 2000);
+                    
+                    document.getElementById('status').textContent = 'LRC内容已复制到剪贴板，可粘贴到备忘录中保存。';
+                })
+                .catch(err => {
+                    console.error('复制失败: ', err);
+                    alert('复制失败，请手动选择并复制文本。');
+                });
+        });
+
+        // 20. 键盘快捷键
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (wavesurfer.getDuration() <= 0) return;
+                wavesurfer.playPause();
+            }
+            
+            // M键标记时间点
+            if (e.code === 'KeyM') {
+                e.preventDefault();
+                markCurrentTime();
+            }
+            
+            // P键上一句（智能回退）
+            if (e.code === 'KeyP') {
+                e.preventDefault();
+                smartGoBack();
+            }
+            
+            // J键上上句（跳转到上上句）
+            if (e.code === 'KeyJ') {
+                e.preventDefault();
+                jumpToPreviousPreviousLine();
+            }
+        });
+
+        // 21. 波形图点击和拖动
+        wavesurfer.on('interaction', () => {
+            // 点击波形图时暂停播放，方便精确标记
+            wavesurfer.pause();
+        });
+
+        // 22. 错误处理
+        wavesurfer.on('error', (err) => {
+            console.error('WaveSurfer error:', err);
+            document.getElementById('status').textContent = '加载音频时出错，请检查文件格式。';
+        });
+        
+        // 23. 初始化显示
+        updateCurrentLineDisplay();
+    </script>
+</body>
+</html>
